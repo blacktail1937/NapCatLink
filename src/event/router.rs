@@ -123,16 +123,16 @@ impl EventRouter {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        // 对于 lifecycle 类型，尝试提取 sub_type 以发布最具体的层级
-        if meta_type == "lifecycle" {
-            if let Some(sub_type) = data.get("sub_type").and_then(|v| v.as_str()) {
-                // 发布最具体层级: meta_event.lifecycle.{sub_type}
-                self.bus.publish(
-                    format!("meta_event.lifecycle.{}", sub_type),
-                    data.clone(),
-                );
-                return;
-            }
+        // 对于 lifecycle 类型且有 sub_type，发布最具体的层级
+        if meta_type == "lifecycle"
+            && let Some(sub_type) = data.get("sub_type").and_then(|v| v.as_str())
+        {
+            // 发布最具体层级: meta_event.lifecycle.{sub_type}
+            self.bus.publish(
+                format!("meta_event.lifecycle.{}", sub_type),
+                data.clone(),
+            );
+            return;
         }
 
         // 如果 meta_event_type 不为空，发布第二层级

@@ -540,6 +540,7 @@ impl MessageApi {
     /// # 返回值
     ///
     /// 成功返回表情回应详情 JSON
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_emoji_like(
         &self,
         message_id: i64,

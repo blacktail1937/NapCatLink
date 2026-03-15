@@ -366,6 +366,7 @@ impl NapCatApi {
     /// # 返回值
     ///
     /// 成功返回空数据
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_group_notice(
         &self,
         group_id: i64,
