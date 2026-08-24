@@ -14,8 +14,9 @@
 
 // 引入 tokio 的 mpsc 和 oneshot channel
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 // 引入 tokio-tungstenite 的 WebSocket 消息类型
-use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::tungstenite::{Message as WsMessage, http};
 // 引入 futures-util 的 Stream/Sink 扩展 trait 和拆分类型
 use futures_util::{SinkExt, StreamExt, stream::SplitSink, stream::SplitStream};
 // 引入 tracing 日志宏
@@ -121,6 +122,40 @@ pub fn build_websocket_url(config: &NapLinkConfig) -> String {
         // Token 不存在或为空 — 直接返回原始 URL
         _ => url.clone(),
     }
+}
+
+/// 构建 WebSocket 连接 Request
+///
+/// 根据配置中的基础 URL 和可选的 Token，构建最终的 WebSocket 连接请求。
+/// Token 以 http请求头 `Authorization: Bearer {token}` 的形式附加。
+///
+/// # 参数
+///
+/// - `config`: NapLink 完整配置
+///
+/// # 返回值
+///
+/// 成功：构建好的 WebSocket request。
+///
+/// 失败：NapLinkError::Connection 错误信息
+pub fn build_websocket_url2(config: &NapLinkConfig) -> Result<http::Request<()>> {
+    let url = &config.connection.url;
+    let token = &config.connection.token;
+
+    let mut request = url.into_client_request().map_err(|e| {
+        NapLinkError::Connection(format!("Failed to create request for {url}: {e}"))
+    })?;
+
+    if let Some(token) = token {
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", token)
+                .parse()
+                .map_err(|_| NapLinkError::Connection(format!("Invalid header for {url}")))?,
+        );
+    }
+
+    Ok(request)
 }
 
 /// ConnectionActor — 运行在独立 tokio task 中的连接管理器
@@ -373,7 +408,7 @@ impl ConnectionActor {
         // 防止重复连接 — 如果已在连接中或已连接，直接返回错误
         if self.state == ConnectionState::Connecting || self.state == ConnectionState::Connected {
             let _ = reply.send(Err(NapLinkError::Connection(
-                "已在连接中或已连接，请勿重复调用 connect()".to_string()
+                "已在连接中或已连接，请勿重复调用 connect()".to_string(),
             )));
             return None;
         }
@@ -382,8 +417,16 @@ impl ConnectionActor {
         self.set_state(ConnectionState::Connecting).await;
 
         // 构建 WebSocket 连接 URL（带 Token）
-        let url = build_websocket_url(&self.config);
-        info!("正在连接到 WebSocket: {}", url);
+        let request = match build_websocket_url2(&self.config) {
+            Ok(req) => req,
+            Err(e) => {
+                error!("实例化 WebSocket 请求失败");
+                self.set_state(ConnectionState::Disconnected).await;
+                let _ = reply.send(Err(e));
+                return None;
+            }
+        };
+        info!("正在连接到 WebSocket: {}", request.uri());
 
         // 获取连接超时时间
         let timeout_duration = Duration::from_millis(self.config.connection.timeout_ms);
@@ -391,7 +434,7 @@ impl ConnectionActor {
         // 在超时时间内尝试建立 WebSocket 连接
         let connect_result = tokio::time::timeout(
             timeout_duration,
-            tokio_tungstenite::connect_async(&url),
+            tokio_tungstenite::connect_async(request),
         )
         .await;
 
@@ -693,8 +736,15 @@ impl ConnectionActor {
         // 使用循环替代递归，避免 async 递归导致的 future 大小无限增长
         loop {
             // 构建 WebSocket 连接 URL
-            let url = build_websocket_url(&self.config);
-            info!("重连: 正在连接到 {}", url);
+            let request = match build_websocket_url2(&self.config) {
+                Ok(req) => req,
+                Err(e) => {
+                    error!("重连: 实例化 WebSocket 请求失败 => {e}");
+                    self.set_state(ConnectionState::Disconnected).await;
+                    return None;
+                }
+            };
+            info!("重连: 正在连接到 {}", request.uri());
 
             // 获取连接超时时间
             let timeout_duration = Duration::from_millis(self.config.connection.timeout_ms);
@@ -702,7 +752,7 @@ impl ConnectionActor {
             // 在超时时间内尝试建立连接
             let connect_result = tokio::time::timeout(
                 timeout_duration,
-                tokio_tungstenite::connect_async(&url),
+                tokio_tungstenite::connect_async(request),
             )
             .await;
 
