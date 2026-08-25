@@ -38,9 +38,8 @@ use super::reconnect::ReconnectService;
 /// WebSocket 流类型别名 — tokio-tungstenite 连接后的完整流类型
 ///
 /// `MaybeTlsStream` 表示连接可能是普通 TCP 或 TLS 加密连接。
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// 发送给 ConnectionActor 的命令枚举
 ///
@@ -146,7 +145,9 @@ pub fn build_websocket_url2(config: &NapLinkConfig) -> Result<http::Request<()>>
         NapLinkError::Connection(format!("Failed to create request for {url}: {e}"))
     })?;
 
-    if let Some(token) = token {
+    if let Some(token) = token
+        && !token.is_empty()
+    {
         request.headers_mut().insert(
             "Authorization",
             format!("Bearer {}", token)
@@ -420,7 +421,7 @@ impl ConnectionActor {
         let request = match build_websocket_url2(&self.config) {
             Ok(req) => req,
             Err(e) => {
-                error!("实例化 WebSocket 请求失败");
+                error!("实例化 WebSocket 请求失败: {e}");
                 self.set_state(ConnectionState::Disconnected).await;
                 let _ = reply.send(Err(e));
                 return None;
@@ -432,11 +433,8 @@ impl ConnectionActor {
         let timeout_duration = Duration::from_millis(self.config.connection.timeout_ms);
 
         // 在超时时间内尝试建立 WebSocket 连接
-        let connect_result = tokio::time::timeout(
-            timeout_duration,
-            tokio_tungstenite::connect_async(request),
-        )
-        .await;
+        let connect_result =
+            tokio::time::timeout(timeout_duration, tokio_tungstenite::connect_async(request)).await;
 
         // 处理连接结果
         match connect_result {
@@ -741,6 +739,13 @@ impl ConnectionActor {
                 Err(e) => {
                     error!("重连: 实例化 WebSocket 请求失败 => {e}");
                     self.set_state(ConnectionState::Disconnected).await;
+
+                    let attempts = self.reconnect_svc.current_attempt();
+                    let _ = self
+                        .notification_tx
+                        .send(ConnectionNotification::ConnectionLost { attempts })
+                        .await;
+
                     return None;
                 }
             };
@@ -750,11 +755,9 @@ impl ConnectionActor {
             let timeout_duration = Duration::from_millis(self.config.connection.timeout_ms);
 
             // 在超时时间内尝试建立连接
-            let connect_result = tokio::time::timeout(
-                timeout_duration,
-                tokio_tungstenite::connect_async(request),
-            )
-            .await;
+            let connect_result =
+                tokio::time::timeout(timeout_duration, tokio_tungstenite::connect_async(request))
+                    .await;
 
             match connect_result {
                 // 连接超时

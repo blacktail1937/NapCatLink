@@ -26,4 +26,4 @@ pub use actor::ConnectionHandle;
 // ConnectionNotification — Actor 发出的通知
 pub use actor::ConnectionNotification;
 // build_websocket_url — URL 构建辅助函数
-pub use actor::build_websocket_url;
+pub use actor::{build_websocket_url, build_websocket_url2};

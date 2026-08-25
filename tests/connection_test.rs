@@ -7,13 +7,14 @@
 //! - ReconnectService 的重置逻辑
 //! - ReconnectService 禁用时的行为
 //! - build_websocket_url 的 URL 构建逻辑
+//! - build_websocket_url2 的 Request 构建逻辑
 
 // 引入连接状态类型
 use napcat_link::connection::state::ConnectionState;
 // 引入重连服务
 use napcat_link::connection::reconnect::ReconnectService;
 // 引入 URL 构建函数
-use napcat_link::connection::build_websocket_url;
+use napcat_link::connection::{build_websocket_url, build_websocket_url2};
 // 引入配置类型
 use napcat_link::config::{BackoffConfig, NapLinkConfigBuilder, ReconnectConfig};
 // 引入 Duration 类型用于延迟断言
@@ -304,4 +305,108 @@ fn test_build_websocket_url_empty_token() {
 
     // 空 Token 时 URL 应保持不变
     assert_eq!(url, "ws://127.0.0.1:3001");
+}
+
+/// 测试 build_websocket_url2 — 无 Token 的情况
+///
+/// 验证没有 Token 时无 Authorization。
+#[test]
+fn test_build_websocket_url2_no_token() {
+    // 创建不带 Token 的配置
+    let config = NapLinkConfigBuilder::new("ws://127.0.0.1:3001")
+        .build()
+        .unwrap();
+
+    // 构建 URL
+    let request = build_websocket_url2(&config).expect("构建请求不失败");
+
+    // 无 Token 时 URL 应保持不变
+    assert_eq!(request.uri(), "ws://127.0.0.1:3001/");
+    assert!(
+        request.headers().get("Authorization").is_none(),
+        "无 token 时不应有 Authorization 头"
+    );
+}
+
+/// 测试 build_websocket_url2 — 有 Token 的情况
+///
+/// 验证有 Token 时 URL 有 Authorization 头。
+#[test]
+fn test_build_websocket_url2_with_token() {
+    // 创建带 Token 的配置
+    let config = NapLinkConfigBuilder::new("ws://127.0.0.1:3001")
+        .token("my-secret-token")
+        .build()
+        .unwrap();
+
+    // 构建 URL
+    let request = build_websocket_url2(&config).expect("构建请求不失败");
+
+    assert_eq!(
+        request
+            .headers()
+            .get("Authorization")
+            .and_then(|v| v.to_str().ok()),
+        Some("Bearer my-secret-token")
+    );
+    assert!(request.uri().query().is_none(), "token 不应出现在 URI 中");
+}
+
+/// 测试 build_websocket_url2 — URL 已有查询参数的情况
+///
+/// 验证当 URL 已包含 '?' 时，原 query 保留。 Authorization 头正常
+#[test]
+fn test_build_websocket_url2_with_existing_query() {
+    // 创建 URL 中已有查询参数的配置
+    let config = NapLinkConfigBuilder::new("ws://127.0.0.1:3001?foo=bar")
+        .token("my-token")
+        .build()
+        .unwrap();
+
+    // 构建 URL
+    let request = build_websocket_url2(&config).expect("构建请求不失败");
+    assert_eq!(request.uri().query(), Some("foo=bar"));
+    // Token 应使用 '&' 连接
+    assert_eq!(
+        request
+            .headers()
+            .get("Authorization")
+            .and_then(|v| v.to_str().ok()),
+        Some("Bearer my-token")
+    );
+}
+
+/// 测试 build_websocket_url2 — Token 为空字符串的情况
+///
+/// 验证空 Token 时 请求头 保持不变（与无 Token 行为一致）。
+#[test]
+fn test_build_websocket_url2_empty_token() {
+    // 创建带空 Token 的配置
+    let config = NapLinkConfigBuilder::new("ws://127.0.0.1:3001")
+        .token("")
+        .build()
+        .unwrap();
+
+    // 构建 URL
+    let request = build_websocket_url2(&config).expect("构建请求不失败");
+
+    // 空 Token 时 URL 应保持不变
+    assert_eq!(request.uri(), "ws://127.0.0.1:3001/");
+    assert!(
+        request.headers().get("Authorization").is_none(),
+        "token 为空时不应有 Authorization 头"
+    );
+}
+
+/// 测试 build_websocket_url2 — url无效的情况
+///
+/// 验证无效 URL：返回 Err 而不是 panic
+#[test]
+fn test_build_websocket_url_invalid_url_returns_error() {
+    let config = NapLinkConfigBuilder::new("ws://").build().unwrap();
+
+    assert!(
+        build_websocket_url2(&config).is_err(),
+        "无效 URL 应返回 Err，而非 panic"
+    );
 }
