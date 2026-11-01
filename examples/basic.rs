@@ -16,7 +16,7 @@
 //! - 替换代码中的 `your_token_here` 为实际的认证 Token
 
 // 引入 NapLink 客户端和消息段类型
-use napcat_link::{NapLink, MessageSegment};
+use napcat_link::{MessageSegment, NapLink};
 
 /// 主函数 -- 异步入口
 #[tokio::main]
@@ -24,11 +24,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化 tracing 日志系统，通过环境变量控制日志级别（默认 info）
     tracing_subscriber::fmt()
         .with_env_filter("info")
+        .with_line_number(true)
+        .with_file(true)
         .init();
 
     // 使用 Builder 模式创建 NapLink 客户端实例
-    let client = NapLink::builder("ws://127.0.0.1:3001")
-        .token("your_token_here")  // 替换为你的 NapCat 认证 Token
+    let client = NapLink::builder("ws://localhost:3001")
+        .token("doushidahundan") // 替换为你的 NapCat 认证 Token
         .build()?;
 
     // 订阅事件总线，获取事件订阅句柄（必须在 connect 之前订阅，否则可能丢失早期事件）
@@ -52,10 +54,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // 从事件数据中提取 group_id 字段
                     if let Some(group_id) = event.data.get("group_id").and_then(|v| v.as_i64()) {
                         // 调用消息 API 向该群发送一条文本回复
-                        let _ = api.message.send_group_message(
-                            group_id,
-                            vec![MessageSegment::text("收到！")],
-                        ).await;
+                        let _ = api
+                            .message
+                            .send_group_message(group_id, vec![MessageSegment::text("收到！")])
+                            .await;
                     }
                 }
             }

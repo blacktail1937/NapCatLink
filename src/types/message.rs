@@ -270,6 +270,8 @@ pub enum MessageSegment {
     Forward {
         /// 合并转发消息的 ID
         id: String,
+        /// 合并转发消息的内容
+        content: Option<Vec<Value>>,
     },
 
     /// 推荐联系人/群消息段
@@ -624,6 +626,9 @@ struct NodeData {
 struct ForwardData {
     /// 合并转发消息 ID
     id: String,
+    /// 合并转发内容
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    content: Option<Vec<Value>>,
 }
 
 /// 推荐联系人消息段数据
@@ -691,10 +696,8 @@ impl Serialize for MessageSegment {
             // 文本消息段：type = "text"
             MessageSegment::Text { text } => RawSegment {
                 r#type: "text".to_string(),
-                data: serde_json::to_value(TextData {
-                    text: text.clone(),
-                })
-                .map_err(serde::ser::Error::custom)?,
+                data: serde_json::to_value(TextData { text: text.clone() })
+                    .map_err(serde::ser::Error::custom)?,
             },
             // @消息段：type = "at"
             MessageSegment::At { qq, name } => RawSegment {
@@ -706,14 +709,18 @@ impl Serialize for MessageSegment {
                 .map_err(serde::ser::Error::custom)?,
             },
             // 表情消息段：type = "face"
-            MessageSegment::Face { id, result_id, chain_count } => RawSegment {
+            MessageSegment::Face {
+                id,
+                result_id,
+                chain_count,
+            } => RawSegment {
                 r#type: "face".to_string(),
                 data: serde_json::to_value(FaceData {
                     id: id.clone(),
                     result_id: result_id.clone(),
                     chain_count: *chain_count,
                 })
-                    .map_err(serde::ser::Error::custom)?,
+                .map_err(serde::ser::Error::custom)?,
             },
             // 回复消息段：type = "reply"
             MessageSegment::Reply { id, seq } => RawSegment {
@@ -722,7 +729,7 @@ impl Serialize for MessageSegment {
                     id: id.clone(),
                     seq: *seq,
                 })
-                    .map_err(serde::ser::Error::custom)?,
+                .map_err(serde::ser::Error::custom)?,
             },
             // 图片消息段：type = "image"
             MessageSegment::Image {
@@ -747,7 +754,13 @@ impl Serialize for MessageSegment {
                 .map_err(serde::ser::Error::custom)?,
             },
             // 语音消息段：type = "record"
-            MessageSegment::Record { file, url, name, path, magic } => RawSegment {
+            MessageSegment::Record {
+                file,
+                url,
+                name,
+                path,
+                magic,
+            } => RawSegment {
                 r#type: "record".to_string(),
                 data: serde_json::to_value(RecordData {
                     file: file.clone(),
@@ -759,7 +772,13 @@ impl Serialize for MessageSegment {
                 .map_err(serde::ser::Error::custom)?,
             },
             // 视频消息段：type = "video"
-            MessageSegment::Video { file, url, name, path, thumb } => RawSegment {
+            MessageSegment::Video {
+                file,
+                url,
+                name,
+                path,
+                thumb,
+            } => RawSegment {
                 r#type: "video".to_string(),
                 data: serde_json::to_value(VideoData {
                     file: file.clone(),
@@ -771,7 +790,13 @@ impl Serialize for MessageSegment {
                 .map_err(serde::ser::Error::custom)?,
             },
             // 文件消息段：type = "file"
-            MessageSegment::File { file, name, url, path, thumb } => RawSegment {
+            MessageSegment::File {
+                file,
+                name,
+                url,
+                path,
+                thumb,
+            } => RawSegment {
                 r#type: "file".to_string(),
                 data: serde_json::to_value(FileData {
                     file: file.clone(),
@@ -882,10 +907,13 @@ impl Serialize for MessageSegment {
                 .map_err(serde::ser::Error::custom)?,
             },
             // 合并转发消息段：type = "forward"
-            MessageSegment::Forward { id } => RawSegment {
+            MessageSegment::Forward { id, content } => RawSegment {
                 r#type: "forward".to_string(),
-                data: serde_json::to_value(ForwardData { id: id.clone() })
-                    .map_err(serde::ser::Error::custom)?,
+                data: serde_json::to_value(ForwardData {
+                    id: id.clone(),
+                    content: content.clone(),
+                })
+                .map_err(serde::ser::Error::custom)?,
             },
             // 推荐联系人消息段：type = "contact"
             MessageSegment::Contact { contact_type, id } => RawSegment {
@@ -1146,7 +1174,10 @@ impl<'de> Deserialize<'de> for MessageSegment {
                 let d: ForwardData =
                     serde_json::from_value(raw.data).map_err(serde::de::Error::custom)?;
                 // 构造 Forward 变体
-                Ok(MessageSegment::Forward { id: d.id })
+                Ok(MessageSegment::Forward {
+                    id: d.id,
+                    content: d.content,
+                })
             }
             // 推荐联系人消息段
             "contact" => {
